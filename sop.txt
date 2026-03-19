@@ -1,0 +1,8 @@
+Service Level Agreement (SLA):
+SLA defines the expected time to resolve a customer issue.
+
+Root Cause Analysis (RCA):
+RCA is used to identify the main cause of a problem.
+
+Audit Process:
+Audit involves reviewing cases to ensure quality and compliance.
