@@ -1,3 +1,6 @@
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -20,36 +23,78 @@ while True:
     if user_input.lower() == "exit":
         break
 
-    # Step 1: Find relevant chunk
-    relevant_chunk = ""
+    query = user_input.lower()
 
-    for chunk in chunks:
-        if any(word.lower() in chunk.lower() for word in user_input.split()):
-            relevant_chunk = chunk
-            break
-
-    if not relevant_chunk:
-        print("\nAI Response:")
-        print("Not found in SOP.")
-        continue
-
-    print("\n[DEBUG] Using this chunk:")
-    print(relevant_chunk)
-
-    # 🔥 Step 2: Hybrid Control Logic
-    if len(relevant_chunk.split("\n")) <= 3:
-        # Small chunk → direct answer (SAFE)
-        print("\nAI Response:")
-        print(relevant_chunk)
-    else:
-        # Large chunk → controlled AI
+    # 🔥 STEP 1 — Intent Handling (Summary / Explain)
+    if "summary" in query or "overview" in query:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            max_tokens=50,
+            max_tokens=100,
             messages=[
                 {
                     "role": "system",
-                    "content": f"""
+                    "content": f"Summarize this SOP in simple terms:\n{sop_data}"
+                },
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            ]
+        )
+        answer = response.choices[0].message.content
+
+    elif "simple" in query or "explain" in query:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=100,
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"Explain this SOP in simple terms:\n{sop_data}"
+                },
+                {
+                    "role": "user",
+                    "content": user_input
+                }
+            ]
+        )
+        answer = response.choices[0].message.content
+
+    # 🔥 STEP 2 — Semantic Search (Main Upgrade)
+    else:
+        vectorizer = TfidfVectorizer()
+        vectors = vectorizer.fit_transform(chunks + [query])
+
+        similarity = cosine_similarity(vectors[-1], vectors[:-1])
+
+        best_match_index = similarity.argmax()
+        best_score = similarity[0][best_match_index]
+
+        # Threshold to avoid wrong matches
+        if best_score < 0.2:
+            relevant_chunk = ""
+        else:
+            relevant_chunk = chunks[best_match_index]
+
+        if not relevant_chunk:
+            print("\nAI Response:")
+            print("Not found in SOP.")
+            continue
+
+        print("\n[DEBUG] Using this chunk:")
+        print(relevant_chunk)
+
+        # 🔥 STEP 3 — Hybrid Response
+        if len(relevant_chunk.split("\n")) <= 3:
+            answer = relevant_chunk
+        else:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                max_tokens=50,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""
 You are a strict SOP-based assistant.
 
 Rules:
@@ -61,19 +106,17 @@ Rules:
 SOP:
 {relevant_chunk}
 """
-                },
-                {
-                    "role": "user",
-                    "content": user_input
-                }
-            ]
-        )
+                    },
+                    {
+                        "role": "user",
+                        "content": user_input
+                    }
+                ]
+            )
 
-        answer = response.choices[0].message.content
+            answer = response.choices[0].message.content
+            answer = answer.split(".")[0] + "."
 
-        # Force single sentence output
-        answer = answer.split(".")[0] + "."
-
-        print("\nAI Response:")
-        print(answer)
-        
+    # ✅ FINAL OUTPUT (COMMON)
+    print("\nAI Response:")
+    print(answer)
